@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+env/
+.env
+.env.*
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime files
+logs/
+*.log
+*.out.log
+*.err.log
+data/benchmark_history.json
+data/*.sqlite
+data/*.sqlite3
+data/*.sqlite3-*
+data/*.db
+data/experiments/
+data/test_conversations/
+data/*_export_*.json
+data/*_export_*.csv
+
+# Local/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Development/support artifacts
+tests/
+tmp/
+output/
+DOCUMENTACAO_COMPLETA.md
+docs/DOCUMENTACAO_COMPLETA.md
+.publish*/

@@ -1,0 +1,8 @@
+<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <title>Gmail</title>
+  <path fill="#ea4335" d="M2.4 4.2h19.2A2.4 2.4 0 0 1 24 6.6v10.8a2.4 2.4 0 0 1-2.4 2.4H2.4A2.4 2.4 0 0 1 0 17.4V6.6a2.4 2.4 0 0 1 2.4-2.4z"/>
+  <path fill="#fff" d="M2.4 6.5v10.9h19.2V6.5L12 13.7 2.4 6.5z"/>
+  <path fill="#fbbc04" d="M0 6.6v10.8l6.6-5z"/>
+  <path fill="#34a853" d="M24 6.6v10.8l-6.6-5z"/>
+  <path fill="#4285f4" d="M2.4 4.2 12 11.4l9.6-7.2z"/>
+</svg>

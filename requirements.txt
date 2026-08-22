@@ -1,0 +1,11 @@
+customtkinter>=5.2.2
+pystray>=0.19.5
+Pillow>=10.2.0
+pyautogui>=0.9.54
+keyboard>=0.13.5
+pytesseract>=0.3.10
+requests>=2.31.0
+keyring>=24.3.0
+pywebview>=5.0
+scikit-learn>=1.4.0
+opencv-python>=4.10.0
