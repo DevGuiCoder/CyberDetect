@@ -27,6 +27,7 @@ data/*.sqlite
 data/*.sqlite3
 data/*.sqlite3-*
 data/*.db
+data/app_icons/
 data/experiments/
 data/test_conversations/
 data/*_export_*.json

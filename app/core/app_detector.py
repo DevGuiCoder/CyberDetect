@@ -11,6 +11,8 @@ from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
+from app.paths import data_dir
+
 try:
     import winreg
 except ImportError:  # pragma: no cover - Windows only.
@@ -136,6 +138,7 @@ SUPPORTED_APPS: dict[str, dict[str, Any]] = {
 
 _INSTALL_CACHE: tuple[float, dict[str, bool]] = (0.0, {})
 _PROCESS_CACHE: tuple[float, set[str]] = (0.0, set())
+_ICON_CACHE: dict[str, str] = {}
 
 
 def normalize_app_name(value: str | None) -> str:
@@ -190,6 +193,227 @@ def _path_exists(pattern: str) -> bool:
         except OSError:
             return False
     return Path(expanded).exists()
+
+
+def _candidate_install_paths(key: str) -> list[Path]:
+    spec = SUPPORTED_APPS.get(key) or {}
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    for pattern in spec.get("paths", []):
+        expanded = _expand_install_pattern(pattern)
+        if not expanded:
+            continue
+        paths = glob.glob(expanded) if any(token in expanded for token in "*?[") else [expanded]
+        for item in paths:
+            path = Path(item)
+            marker = str(path).lower()
+            if marker in seen or not path.exists() or not path.is_file():
+                continue
+            seen.add(marker)
+            candidates.append(path)
+
+    process_names = {str(item).lower() for item in spec.get("processes", [])}
+    preferred = [
+        path
+        for path in candidates
+        if path.name.lower() in process_names and path.name.lower() != "update.exe"
+    ]
+    remaining = [path for path in candidates if path not in preferred]
+    return preferred + remaining
+
+
+def _icon_cache_dir() -> Path:
+    directory = data_dir() / "app_icons"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+class BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ("biSize", wintypes.DWORD),
+        ("biWidth", wintypes.LONG),
+        ("biHeight", wintypes.LONG),
+        ("biPlanes", wintypes.WORD),
+        ("biBitCount", wintypes.WORD),
+        ("biCompression", wintypes.DWORD),
+        ("biSizeImage", wintypes.DWORD),
+        ("biXPelsPerMeter", wintypes.LONG),
+        ("biYPelsPerMeter", wintypes.LONG),
+        ("biClrUsed", wintypes.DWORD),
+        ("biClrImportant", wintypes.DWORD),
+    ]
+
+
+class RGBQUAD(ctypes.Structure):
+    _fields_ = [
+        ("rgbBlue", ctypes.c_ubyte),
+        ("rgbGreen", ctypes.c_ubyte),
+        ("rgbRed", ctypes.c_ubyte),
+        ("rgbReserved", ctypes.c_ubyte),
+    ]
+
+
+class BITMAPINFO(ctypes.Structure):
+    _fields_ = [
+        ("bmiHeader", BITMAPINFOHEADER),
+        ("bmiColors", RGBQUAD * 1),
+    ]
+
+
+def _extract_exe_icon(source: Path, output: Path, size: int = 64) -> bool:
+    if os.name != "nt":
+        return False
+
+    try:
+        from PIL import Image
+    except Exception:
+        return False
+
+    large_icons = None
+    small_icons = None
+    hicon = None
+    screen_dc = None
+    mem_dc = None
+    bitmap = None
+    previous = None
+
+    try:
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+
+        handle_type = ctypes.c_void_p
+        shell32.ExtractIconExW.argtypes = [
+            ctypes.c_wchar_p,
+            ctypes.c_int,
+            ctypes.POINTER(handle_type),
+            ctypes.POINTER(handle_type),
+            ctypes.c_uint,
+        ]
+        shell32.ExtractIconExW.restype = ctypes.c_uint
+        user32.GetDC.argtypes = [handle_type]
+        user32.GetDC.restype = handle_type
+        user32.ReleaseDC.argtypes = [handle_type, handle_type]
+        user32.ReleaseDC.restype = ctypes.c_int
+        user32.DrawIconEx.argtypes = [
+            handle_type,
+            ctypes.c_int,
+            ctypes.c_int,
+            handle_type,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint,
+            handle_type,
+            ctypes.c_uint,
+        ]
+        user32.DrawIconEx.restype = wintypes.BOOL
+        user32.DestroyIcon.argtypes = [handle_type]
+        user32.DestroyIcon.restype = wintypes.BOOL
+        gdi32.CreateCompatibleDC.argtypes = [handle_type]
+        gdi32.CreateCompatibleDC.restype = handle_type
+        gdi32.CreateDIBSection.argtypes = [
+            handle_type,
+            ctypes.POINTER(BITMAPINFO),
+            ctypes.c_uint,
+            ctypes.POINTER(ctypes.c_void_p),
+            handle_type,
+            ctypes.c_uint,
+        ]
+        gdi32.CreateDIBSection.restype = handle_type
+        gdi32.SelectObject.argtypes = [handle_type, handle_type]
+        gdi32.SelectObject.restype = handle_type
+        gdi32.DeleteObject.argtypes = [handle_type]
+        gdi32.DeleteObject.restype = wintypes.BOOL
+        gdi32.DeleteDC.argtypes = [handle_type]
+        gdi32.DeleteDC.restype = wintypes.BOOL
+
+        large_icons = (handle_type * 1)()
+        small_icons = (handle_type * 1)()
+        if shell32.ExtractIconExW(str(source), 0, large_icons, small_icons, 1) <= 0:
+            return False
+        hicon = large_icons[0] or small_icons[0]
+        if not hicon:
+            return False
+
+        bitmap_info = BITMAPINFO()
+        bitmap_info.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        bitmap_info.bmiHeader.biWidth = size
+        bitmap_info.bmiHeader.biHeight = -size
+        bitmap_info.bmiHeader.biPlanes = 1
+        bitmap_info.bmiHeader.biBitCount = 32
+        bitmap_info.bmiHeader.biCompression = 0
+
+        bits = ctypes.c_void_p()
+        screen_dc = user32.GetDC(None)
+        mem_dc = gdi32.CreateCompatibleDC(screen_dc)
+        bitmap = gdi32.CreateDIBSection(
+            screen_dc,
+            ctypes.byref(bitmap_info),
+            0,
+            ctypes.byref(bits),
+            None,
+            0,
+        )
+        if not screen_dc or not mem_dc or not bitmap or not bits:
+            return False
+
+        previous = gdi32.SelectObject(mem_dc, bitmap)
+        ctypes.memset(bits, 0, size * size * 4)
+        if not user32.DrawIconEx(mem_dc, 0, 0, hicon, size, size, 0, None, 0x0003):
+            return False
+
+        raw = ctypes.string_at(bits, size * size * 4)
+        image = Image.frombuffer("RGBA", (size, size), raw, "raw", "BGRA", 0, 1).copy()
+        if image.getchannel("A").getextrema() == (0, 0):
+            alpha = image.convert("RGB").convert("L").point(lambda value: 255 if value else 0)
+            image.putalpha(alpha)
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        image.save(output, "PNG")
+        return output.exists() and output.stat().st_size > 0
+    except Exception:
+        return False
+    finally:
+        try:
+            if previous and mem_dc:
+                gdi32.SelectObject(mem_dc, previous)
+            if bitmap:
+                gdi32.DeleteObject(bitmap)
+            if mem_dc:
+                gdi32.DeleteDC(mem_dc)
+            if screen_dc:
+                user32.ReleaseDC(None, screen_dc)
+            for icon in {large_icons[0] if large_icons else None, small_icons[0] if small_icons else None}:
+                if icon:
+                    user32.DestroyIcon(icon)
+        except Exception:
+            pass
+
+
+def _app_icon_path(key: str) -> str:
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
+
+    spec = SUPPORTED_APPS.get(key) or {}
+    if spec.get("web_only"):
+        _ICON_CACHE[key] = ""
+        return ""
+
+    output = _icon_cache_dir() / f"{key}.png"
+    if output.exists() and output.stat().st_size > 0:
+        icon_path = output.resolve().as_uri()
+        _ICON_CACHE[key] = icon_path
+        return icon_path
+
+    for source in _candidate_install_paths(key):
+        if _extract_exe_icon(source, output):
+            icon_path = output.resolve().as_uri()
+            _ICON_CACHE[key] = icon_path
+            return icon_path
+
+    _ICON_CACHE[key] = ""
+    return ""
 
 
 def _registry_display_names() -> list[str]:
@@ -310,6 +534,7 @@ def app_catalog() -> dict[str, dict[str, Any]]:
         process_list = [item.lower() for item in spec.get("processes", [])]
         active = any(process in processes for process in process_list)
         is_installed = bool(installed.get(key) or active)
+        icon_path = _app_icon_path(key) if is_installed and not spec.get("web_only") else ""
         catalog[key] = {
             "key": key,
             "display": spec["display"],
@@ -317,6 +542,7 @@ def app_catalog() -> dict[str, dict[str, Any]]:
             "active": active,
             "web_only": bool(spec.get("web_only")),
             "download_url": spec.get("download_url") or "",
+            "icon_path": icon_path,
         }
     return catalog
 
@@ -354,6 +580,7 @@ def enrich_monitored_apps(apps: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "web_only": bool(info["web_only"]),
                     "can_monitor": can_monitor,
                     "download_url": info["download_url"] if not can_monitor else "",
+                    "icon_path": info.get("icon_path", ""),
                     "status": status_label.lower().replace(" ", "_"),
                     "status_label": status_label,
                     "lock_reason": "" if can_monitor else "Aplicativo nao instalado nesta maquina.",
@@ -370,6 +597,7 @@ def enrich_monitored_apps(apps: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "web_only": False,
                     "can_monitor": True,
                     "download_url": "",
+                    "icon_path": "",
                     "status": "monitorando" if enabled else "custom",
                     "status_label": "MONITORANDO" if enabled else "CUSTOM",
                     "lock_reason": "",

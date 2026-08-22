@@ -41,6 +41,7 @@ type MonitoredApp = {
   web_only?: boolean;
   can_monitor?: boolean;
   download_url?: string;
+  icon_path?: string;
   status?: string;
   status_label?: string;
   lock_reason?: string;
@@ -2201,6 +2202,7 @@ const AppList = memo(function AppList({
             <AppIcon
               appId={app.app_key}
               name={appLabel}
+              iconPath={app.icon_path}
               installed={canMonitor}
               status={app.status_label || app.status}
             />

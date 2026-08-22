@@ -8,7 +8,7 @@ type AppIconProps = {
   status?: string;
 };
 
-const APP_ICON_FILES: Record<string, string> = {
+const APP_ICON_SOURCES: Record<string, string> = {
   chrome: "chrome.svg",
   edge: "edge.svg",
   firefox: "firefox.svg",
@@ -16,7 +16,7 @@ const APP_ICON_FILES: Record<string, string> = {
   telegram: "telegram.svg",
   whatsapp_desktop: "whatsapp-desktop.svg",
   whatsapp_web: "whatsapp-web.svg",
-  gmail: "gmail.svg",
+  gmail: "https://www.gstatic.com/images/branding/product/1x/gmail_2020q4_48dp.png",
   outlook: "outlook.svg",
 };
 
@@ -33,10 +33,12 @@ const FALLBACK_LABELS: Record<string, string> = {
 };
 
 function iconAssetPath(appId?: string | null) {
-  if (!appId || !APP_ICON_FILES[appId]) return "";
+  if (!appId || !APP_ICON_SOURCES[appId]) return "";
+  const source = APP_ICON_SOURCES[appId];
+  if (/^(https?:)?\/\//.test(source) || source.startsWith("data:") || source.startsWith("file:")) return source;
   const base = import.meta.env.BASE_URL || "/";
   const normalizedBase = base.endsWith("/") ? base : `${base}/`;
-  return `${normalizedBase}apps/${APP_ICON_FILES[appId]}`;
+  return `${normalizedBase}apps/${source}`;
 }
 
 function fallbackIcon(appId?: string | null, name?: string) {
@@ -72,7 +74,7 @@ export const AppIcon = memo(function AppIcon({
 
   const locked = !installed;
   const showImage = Boolean(src && !failed);
-  const showWebBadge = isWebService(appId, status);
+  const showWebBadge = appId !== "gmail" && isWebService(appId, status);
 
   return (
     <span
@@ -87,6 +89,7 @@ export const AppIcon = memo(function AppIcon({
           alt=""
           draggable={false}
           decoding="async"
+          referrerPolicy="no-referrer"
           onError={() => setFailed(true)}
         />
       ) : (
